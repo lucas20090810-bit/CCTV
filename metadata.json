@@ -1,0 +1,6 @@
+{
+  "name": "CCTV",
+  "description": "CCTV - Stories Everywhere. A premium cinematic movie and TV show streaming application that offers a visually stunning dark slate interface with vibrant neon red glows, seamless gesture-driven controls, particle fluid transitions, and local persistent watchlist curation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
