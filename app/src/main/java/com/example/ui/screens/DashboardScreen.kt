@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -101,6 +102,7 @@ fun DashboardScreen(viewModel: CCTVViewModel) {
     val isMockLoggedIn by viewModel.isMockLoggedIn.collectAsState()
     val selectedMedia by viewModel.selectedMedia.collectAsState()
     val activePlayingMedia by viewModel.activePlayingMedia.collectAsState()
+    var showAdminDashboard by remember { mutableStateOf(false) }
 
     if (!isMockLoggedIn) {
         AuthScreen(viewModel = viewModel)
@@ -167,7 +169,7 @@ fun DashboardScreen(viewModel: CCTVViewModel) {
                         "tv" -> TVShowsScreen(viewModel)
                         "search" -> SearchScreen(viewModel)
                         "watchlist" -> WatchlistScreen(viewModel)
-                        "profile" -> ProfileScreen(viewModel)
+                        "profile" -> ProfileScreen(viewModel, onShowAdmin = { showAdminDashboard = true })
                     }
 
                     // Bottom detail view overlay sheet
@@ -187,6 +189,14 @@ fun DashboardScreen(viewModel: CCTVViewModel) {
                     media = playing,
                     viewModel = viewModel,
                     onClose = { viewModel.stopPlayback() }
+                )
+            }
+
+            // Real-time developer control overlay
+            if (showAdminDashboard) {
+                AdminDashboardOverlay(
+                    viewModel = viewModel,
+                    onClose = { showAdminDashboard = false }
                 )
             }
         }
@@ -286,10 +296,12 @@ fun AppHeader(viewModel: CCTVViewModel) {
 // ==========================================
 @Composable
 fun CinemaHomeScreen(viewModel: CCTVViewModel) {
-    val items = viewModel.catalog
+    val items by viewModel.catalog.collectAsState()
+    val continueWatchingItems by viewModel.continueWatchingList.collectAsState(initial = emptyList())
     
     // Choose specific sci-fi hack 2055 as hero item
-    val heroItem = items.firstOrNull { it.id == "rank4" } ?: items.first()
+    val heroItem = items.firstOrNull { it.id == "rank4" } ?: items.firstOrNull() ?: return
+
 
     LazyColumn(
         modifier = Modifier
@@ -374,11 +386,33 @@ fun CinemaHomeScreen(viewModel: CCTVViewModel) {
             )
         }
 
-        // Floating Progress / Continue Watching Banner (Artistic Flair Theme)
-        item {
-            val lastSignalItem = items.firstOrNull { it.id == "rank1" } ?: items.first()
-            Spacer(modifier = Modifier.height(28.dp))
-            ArtisticContinueWatchingBanner(media = lastSignalItem, viewModel = viewModel)
+        // Floating Progress / Continue Watching Banner (Artistic Flair Theme) - Connect with actual Room DB values!
+        val lastWatchedRecord = continueWatchingItems.firstOrNull()
+        if (lastWatchedRecord != null) {
+            val matchedItem = items.firstOrNull { it.id == lastWatchedRecord.mediaId }
+            if (matchedItem != null) {
+                item {
+                    Spacer(modifier = Modifier.height(28.dp))
+                    ArtisticContinueWatchingBanner(
+                        media = matchedItem,
+                        progress = lastWatchedRecord.progress,
+                        viewModel = viewModel
+                    )
+                }
+            }
+        } else {
+            // Default highlight if they haven't watched anything yet (first launch)
+            val fallbackItem = items.firstOrNull { it.id == "rank1" } ?: items.firstOrNull()
+            fallbackItem?.let { matchedItem ->
+                item {
+                    Spacer(modifier = Modifier.height(28.dp))
+                    ArtisticContinueWatchingBanner(
+                        media = matchedItem,
+                        progress = 0.25f, // Suggested teaser highlight
+                        viewModel = viewModel
+                    )
+                }
+            }
         }
     }
 }
@@ -841,7 +875,8 @@ fun MovieCard(
 // ==========================================
 @Composable
 fun MoviesScreen(viewModel: CCTVViewModel) {
-    val items = viewModel.catalog.filter { it.isMovie }
+    val allItems by viewModel.catalog.collectAsState()
+    val items = allItems.filter { it.isMovie }
 
     Column(
         modifier = Modifier
@@ -881,7 +916,8 @@ fun MoviesScreen(viewModel: CCTVViewModel) {
 // ==========================================
 @Composable
 fun TVShowsScreen(viewModel: CCTVViewModel) {
-    val items = viewModel.catalog.filter { !it.isMovie }
+    val allItems by viewModel.catalog.collectAsState()
+    val items = allItems.filter { !it.isMovie }
 
     Column(
         modifier = Modifier
@@ -999,6 +1035,7 @@ fun SearchScreen(viewModel: CCTVViewModel) {
 @Composable
 fun WatchlistScreen(viewModel: CCTVViewModel) {
     val list by viewModel.watchList.collectAsState(initial = emptyList())
+    val allItems by viewModel.catalog.collectAsState()
 
     Column(
         modifier = Modifier
@@ -1053,7 +1090,7 @@ fun WatchlistScreen(viewModel: CCTVViewModel) {
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(list) { localItem ->
-                    val matchedCatalogItem = viewModel.catalog.firstOrNull { it.id == localItem.mediaId }
+                    val matchedCatalogItem = allItems.firstOrNull { it.id == localItem.mediaId }
                     if (matchedCatalogItem != null) {
                         Box(contentAlignment = Alignment.TopEnd) {
                             MovieCard(
@@ -1089,7 +1126,7 @@ fun WatchlistScreen(viewModel: CCTVViewModel) {
 // 6. 設定與個人檔案 (ProfileScreen)
 // ==========================================
 @Composable
-fun ProfileScreen(viewModel: CCTVViewModel) {
+fun ProfileScreen(viewModel: CCTVViewModel, onShowAdmin: () -> Unit) {
     val email by viewModel.userEmail.collectAsState()
     var streamingQuality by remember { mutableStateOf("Ultra HD 4K") }
     var useSubtitles by remember { mutableStateOf(true) }
@@ -1209,7 +1246,31 @@ fun ProfileScreen(viewModel: CCTVViewModel) {
             }
 
             item {
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                // Developer Dashboard entry
+                Button(
+                    onClick = onShowAdmin,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .border(1.dp, NeonRed.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeonRed.copy(alpha = 0.1f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Admin",
+                        tint = NeonRed,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("進入開發者管理後台 (Admin Panel)", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = { viewModel.logout() },
                     modifier = Modifier
@@ -1253,7 +1314,7 @@ private fun settingDivider() {
 }
 
 @Composable
-fun ArtisticContinueWatchingBanner(media: MediaItem, viewModel: CCTVViewModel) {
+fun ArtisticContinueWatchingBanner(media: MediaItem, progress: Float, viewModel: CCTVViewModel) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1293,12 +1354,12 @@ fun ArtisticContinueWatchingBanner(media: MediaItem, viewModel: CCTVViewModel) {
                 // Red mini progress line
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.66f)
+                        .fillMaxWidth(coerceProgress(progress))
                         .height(3.dp)
                         .background(NeonRed)
                 )
             }
-
+ 
             // Central Info Section
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1326,7 +1387,7 @@ fun ArtisticContinueWatchingBanner(media: MediaItem, viewModel: CCTVViewModel) {
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.66f)
+                            .fillMaxWidth(coerceProgress(progress))
                             .fillMaxHeight()
                             .background(NeonRed, CircleShape)
                             .drawBehind {
@@ -1340,7 +1401,7 @@ fun ArtisticContinueWatchingBanner(media: MediaItem, viewModel: CCTVViewModel) {
                     )
                 }
             }
-
+ 
             // Quick Play Button (Right)
             Box(
                 modifier = Modifier
@@ -1358,6 +1419,10 @@ fun ArtisticContinueWatchingBanner(media: MediaItem, viewModel: CCTVViewModel) {
             }
         }
     }
+}
+
+private fun coerceProgress(p: Float): Float {
+    return if (p <= 0.01f) 0.05f else if (p > 1.0f) 1.0f else p
 }
 
 // Helper colors

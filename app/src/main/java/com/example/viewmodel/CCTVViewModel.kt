@@ -46,8 +46,16 @@ class CCTVViewModel(private val repository: WatchlistRepository) : ViewModel() {
         initialValue = emptyList()
     )
 
-    // --- Film Catalog State ---
-    val catalog: List<MediaItem> = CinemaCatalog.items
+    // --- Continue Watching State from Room SQLite ---
+    val continueWatchingList = repository.continueWatchingFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // --- Film Catalog State (Editable by Admin) ---
+    private val _catalog = MutableStateFlow<List<MediaItem>>(CinemaCatalog.items)
+    val catalog: StateFlow<List<MediaItem>> = _catalog.asStateFlow()
 
     // --- Interactive Search ---
     private val _searchQuery = MutableStateFlow("")
@@ -55,6 +63,38 @@ class CCTVViewModel(private val repository: WatchlistRepository) : ViewModel() {
 
     private val _filteredItems = MutableStateFlow<List<MediaItem>>(CinemaCatalog.items)
     val filteredItems: StateFlow<List<MediaItem>> = _filteredItems.asStateFlow()
+
+    // --- Admin Operations ---
+    fun addMedia(item: MediaItem) {
+        val newList = _catalog.value + item
+        _catalog.value = newList
+        updateFilteredList()
+    }
+
+    fun editMedia(item: MediaItem) {
+        val newList = _catalog.value.map { if (it.id == item.id) item else it }
+        _catalog.value = newList
+        updateFilteredList()
+    }
+
+    fun deleteMedia(id: String) {
+        val newList = _catalog.value.filter { it.id != id }
+        _catalog.value = newList
+        updateFilteredList()
+    }
+
+    private fun updateFilteredList() {
+        val query = _searchQuery.value
+        if (query.isBlank()) {
+            _filteredItems.value = _catalog.value
+        } else {
+            _filteredItems.value = _catalog.value.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                it.genre.contains(query, ignoreCase = true) ||
+                it.cast.any { actor -> actor.contains(query, ignoreCase = true) }
+            }
+        }
+    }
 
     // --- Cinematic Simulated Multi-player Engine ---
     private val _activePlayingMedia = MutableStateFlow<MediaItem?>(null)
@@ -163,9 +203,9 @@ class CCTVViewModel(private val repository: WatchlistRepository) : ViewModel() {
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
         if (query.isBlank()) {
-            _filteredItems.value = CinemaCatalog.items
+            _filteredItems.value = _catalog.value
         } else {
-            _filteredItems.value = CinemaCatalog.items.filter {
+            _filteredItems.value = _catalog.value.filter {
                 it.title.contains(query, ignoreCase = true) ||
                 it.genre.contains(query, ignoreCase = true) ||
                 it.cast.any { actor -> actor.contains(query, ignoreCase = true) }
@@ -240,7 +280,8 @@ class CCTVViewModel(private val repository: WatchlistRepository) : ViewModel() {
     private fun runPlaybackSimulation() {
         playbackJob?.cancel()
         playbackJob = viewModelScope.launch {
-            val totalSec = if (activePlayingMedia.value?.isMovie == true) 7200 else 2400 // Mock 2 hours or 40 mins
+            val media = activePlayingMedia.value ?: return@launch
+            val totalSec = if (media.isMovie) 7200 else 2400 // Mock 2 hours or 40 mins
             while (_playbackProgress.value < 1.0f) {
                 // Adapt timer speed to user speed factor
                 val secondsPerTick = 1f * _currentSpeed.value
@@ -250,9 +291,27 @@ class CCTVViewModel(private val repository: WatchlistRepository) : ViewModel() {
                     val nextProgress = _playbackTimeSeconds.value.toFloat() / totalSec
                     if (nextProgress >= 1f) {
                         _playbackProgress.value = 1f
+                        // Remove or complete continue watching progress
+                        repository.saveContinueWatching(
+                            com.example.data.ContinueWatchingItem(
+                                mediaId = media.id,
+                                title = media.title,
+                                tagline = media.tagline,
+                                progress = 1.0f
+                            )
+                        )
                         break
                     } else {
                         _playbackProgress.value = nextProgress
+                        // Save movie state in real-time in SQLite continue watching list!
+                        repository.saveContinueWatching(
+                            com.example.data.ContinueWatchingItem(
+                                mediaId = media.id,
+                                title = media.title,
+                                tagline = media.tagline,
+                                progress = nextProgress
+                            )
+                        )
                     }
 
                     // Handles intro show up between 5s and 25s

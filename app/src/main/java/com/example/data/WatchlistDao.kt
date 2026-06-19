@@ -19,4 +19,14 @@ interface WatchlistDao {
 
     @Query("SELECT * FROM watchlist_items WHERE mediaId = :mediaId LIMIT 1")
     suspend fun getItemById(mediaId: String): WatchlistItem?
+
+    // Continue watching flows
+    @Query("SELECT * FROM continue_watching ORDER BY lastWatchedTime DESC")
+    fun getContinueWatchingFlow(): Flow<List<ContinueWatchingItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertContinueWatching(item: ContinueWatchingItem)
+
+    @Query("DELETE FROM continue_watching WHERE mediaId = :mediaId")
+    suspend fun deleteContinueWatching(mediaId: String)
 }

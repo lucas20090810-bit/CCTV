@@ -16,4 +16,15 @@ class WatchlistRepository(private val dao: WatchlistDao) {
     suspend fun isBookmarked(mediaId: String): Boolean {
         return dao.getItemById(mediaId) != null
     }
+
+    // Continue watching operations
+    val continueWatchingFlow: Flow<List<ContinueWatchingItem>> = dao.getContinueWatchingFlow()
+
+    suspend fun saveContinueWatching(item: ContinueWatchingItem) {
+        dao.insertContinueWatching(item)
+    }
+
+    suspend fun removeContinueWatching(mediaId: String) {
+        dao.deleteContinueWatching(mediaId)
+    }
 }
